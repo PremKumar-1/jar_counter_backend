@@ -287,17 +287,14 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.utils import timezone
 from django.utils.dateparse import parse_date
-from django.db.models import Sum
-import json
-from datetime import datetime
+from django.db.models import Sum, Q
+from datetime import datetime, timedelta
 from .models import JarCount, Inventory
 from .serializers import JarCountSerializer, InventorySerializer
-from django.utils.timezone import make_aware
-import pytz
-from django.db.models import F
-from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 class InventoryViewSet(viewsets.ModelViewSet):
     queryset = Inventory.objects.all()
@@ -320,6 +317,7 @@ class InventoryViewSet(viewsets.ModelViewSet):
                     'status': 'created' if created else 'updated'
                 })
             except Exception as e:
+                logger.error(f"Error updating/creating inventory: {str(e)}")
                 return Response({'status': 'error', 'message': str(e)}, status=400)
         return Response(response_data, status=201)
 
@@ -329,53 +327,60 @@ class JarCountViewSet(viewsets.ModelViewSet):
     pagination_class = pagination.PageNumberPagination
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        date = self.request.query_params.get('date')
-        if date:
-            date = parse_date(date)
+        try:
+            queryset = super().get_queryset()
+            date = self.request.query_params.get('date')
             if date:
-                start_of_day_shift = datetime.combine(date, datetime.min.time()) + timedelta(hours=8)
-                end_of_day_shift = start_of_day_shift + timedelta(hours=12)
-                start_of_night_shift = end_of_day_shift
-                end_of_night_shift = start_of_day_shift + timedelta(hours=24)
+                date = parse_date(date)
+                if date:
+                    start_of_day_shift = datetime.combine(date, datetime.min.time()) + timedelta(hours=8)
+                    end_of_day_shift = start_of_day_shift + timedelta(hours=12)
+                    start_of_night_shift = end_of_day_shift
+                    end_of_night_shift = start_of_day_shift + timedelta(hours=24)
 
-                queryset = queryset.filter(
-                    (Q(timestamp__gte=start_of_day_shift) & Q(timestamp__lt=end_of_day_shift) & Q(shift='day')) |
-                    (Q(timestamp__gte=start_of_night_shift) & Q(timestamp__lt=end_of_night_shift) & Q(shift='night'))
-                )
-        return queryset
+                    queryset = queryset.filter(
+                        (Q(timestamp__gte=start_of_day_shift) & Q(timestamp__lt=end_of_day_shift) & Q(shift='day')) |
+                        (Q(timestamp__gte=start_of_night_shift) & Q(timestamp__lt=end_of_night_shift) & Q(shift='night'))
+                    )
+            return queryset
+        except Exception as e:
+            logger.error(f"Error in get_queryset: {str(e)}")
+            raise e
 
     @action(detail=False, methods=['get'])
     def aggregate(self, request):
-        date = request.query_params.get('date')
-        if date:
-            date = parse_date(date)
+        try:
+            date = request.query_params.get('date')
             if date:
-                start_of_day_shift = datetime.combine(date, datetime.min.time()) + timedelta(hours=8)
-                end_of_day_shift = start_of_day_shift + timedelta(hours=12)
-                start_of_night_shift = end_of_day_shift
-                end_of_night_shift = start_of_day_shift + timedelta(hours=24)
+                date = parse_date(date)
+                if date:
+                    start_of_day_shift = datetime.combine(date, datetime.min.time()) + timedelta(hours=8)
+                    end_of_day_shift = start_of_day_shift + timedelta(hours=12)
+                    start_of_night_shift = end_of_day_shift
+                    end_of_night_shift = start_of_day_shift + timedelta(hours=24)
 
-                day_shift_aggregation = JarCount.objects.filter(
-                    timestamp__gte=start_of_day_shift,
-                    timestamp__lt=end_of_day_shift,
-                    shift='day'
-                ).aggregate(total=Sum('count'))
+                    day_shift_aggregation = JarCount.objects.filter(
+                        timestamp__gte=start_of_day_shift,
+                        timestamp__lt=end_of_day_shift,
+                        shift='day'
+                    ).aggregate(total=Sum('count'))
 
-                night_shift_aggregation = JarCount.objects.filter(
-                    timestamp__gte=start_of_night_shift,
-                    timestamp__lt=end_of_night_shift,
-                    shift='night'
-                ).aggregate(total=Sum('count'))
+                    night_shift_aggregation = JarCount.objects.filter(
+                        timestamp__gte=start_of_night_shift,
+                        timestamp__lt=end_of_night_shift,
+                        shift='night'
+                    ).aggregate(total=Sum('count'))
 
-                result = {
-                    'shift1': day_shift_aggregation['total'] or 0,
-                    'shift2': night_shift_aggregation['total'] or 0,
-                    'total': (day_shift_aggregation['total'] or 0) + (night_shift_aggregation['total'] or 0)
-                }
-                return Response(result)
-        return Response({'error': 'Invalid or missing date'}, status=400)
-
+                    result = {
+                        'shift1': day_shift_aggregation['total'] or 0,
+                        'shift2': night_shift_aggregation['total'] or 0,
+                        'total': (day_shift_aggregation['total'] or 0) + (night_shift_aggregation['total'] or 0)
+                    }
+                    return Response(result)
+            return Response({'error': 'Invalid or missing date'}, status=400)
+        except Exception as e:
+            logger.error(f"Error in aggregate: {str(e)}")
+            return Response({'error': str(e)}, status=500)
 
     @action(detail=False, methods=['post'])
     def update_inventory(self, request):
@@ -408,6 +413,7 @@ class JarCountViewSet(viewsets.ModelViewSet):
 
             return Response({'status': 'success', 'message': 'Inventory updated and jars counted'})
         except Exception as e:
+            logger.error(f"Error in update_inventory: {str(e)}")
             return Response({'status': 'error', 'message': str(e)}, status=400)
 
 @csrf_exempt
@@ -456,9 +462,9 @@ def update_jar_count(request):
         except json.JSONDecodeError:
             return JsonResponse({'status': 'fail', 'reason': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.error(f"Error in update_jar_count: {str(e)}")
             return JsonResponse({'status': 'fail', 'reason': str(e)}, status=400)
     elif request.method == 'GET':
         return JsonResponse({'status': 'info', 'message': 'Use POST to update jar count'}, status=200)
     else:
         return JsonResponse({'status': 'fail', 'reason': 'Invalid request method'}, status=405)
-
