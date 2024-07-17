@@ -134,7 +134,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.db.models import Sum, Q
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from .models import JarCount, Inventory
 from .serializers import JarCountSerializer, InventorySerializer
 from django.utils.timezone import make_aware
@@ -150,11 +150,22 @@ class DatePagination(pagination.PageNumberPagination):
         if not date:
             return super().paginate_queryset(queryset, request, view)
 
-        start_time = datetime.combine(date, datetime.time(8, 0), tzinfo=timezone.get_current_timezone())
+        start_time = datetime.combine(date, time(8, 0), tzinfo=timezone.get_current_timezone())
         end_time = start_time + timedelta(days=1) - timedelta(seconds=1)
 
         queryset = queryset.filter(timestamp__gte=start_time, timestamp__lt=end_time)
-        return super().paginate_queryset(queryset, request, view)
+        self.page = self.paginate_page_number(queryset, request, view=view)
+        return list(self.page)
+
+    def paginate_page_number(self, queryset, request, view=None):
+        paginator = self.django_paginator_class(queryset, self.page_size)
+        page_number = request.query_params.get(self.page_query_param, 1)
+        try:
+            page_number = int(page_number)
+        except ValueError:
+            page_number = 1
+        page = paginator.page(page_number)
+        return page
 
     def get_paginated_response(self, data):
         date_str = self.request.query_params.get('date')
@@ -208,7 +219,7 @@ class JarCountViewSet(viewsets.ModelViewSet):
         if date:
             date = parse_date(date)
             if date:
-                start_time = datetime.combine(date, datetime.time(8, 0), tzinfo=timezone.get_current_timezone())
+                start_time = datetime.combine(date, time(8, 0), tzinfo=timezone.get_current_timezone())
                 end_time = start_time + timedelta(days=1) - timedelta(seconds=1)
                 queryset = queryset.filter(timestamp__gte=start_time, timestamp__lt=end_time)
         return queryset
@@ -219,7 +230,7 @@ class JarCountViewSet(viewsets.ModelViewSet):
         if date:
             date = parse_date(date)
             if date:
-                start_time = datetime.combine(date, datetime.time(8, 0), tzinfo=timezone.get_current_timezone())
+                start_time = datetime.combine(date, time(8, 0), tzinfo=timezone.get_current_timezone())
                 end_time = start_time + timedelta(days=1) - timedelta(seconds=1)
                 queryset = JarCount.objects.filter(timestamp__gte=start_time, timestamp__lt=end_time)
                 aggregation = queryset.values('shift').annotate(total=Sum('count')).order_by('shift')
