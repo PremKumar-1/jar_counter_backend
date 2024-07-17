@@ -139,8 +139,6 @@ from .models import JarCount, Inventory
 from .serializers import JarCountSerializer, InventorySerializer
 from django.utils.timezone import make_aware
 import pytz
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 
 class InventoryViewSet(viewsets.ModelViewSet):
     queryset = Inventory.objects.all()
@@ -225,16 +223,6 @@ class JarCountViewSet(viewsets.ModelViewSet):
 
             jar_count = JarCount.objects.create(inventory=inventory, count=count, shift=shift)
 
-            # Send the update to the WebSocket
-            channel_layer = get_channel_layer()
-            async_to_sync(channel_layer.group_send)(
-                'jar_counts',
-                {
-                    'type': 'jar_count_update',
-                    'jar_count': jar_count.count
-                }
-            )
-
             return Response({'status': 'success', 'message': 'Inventory updated and jars counted'})
         except Exception as e:
             return Response({'status': 'error', 'message': str(e)}, status=400)
@@ -279,16 +267,6 @@ def update_jar_count(request):
                     timestamp=timezone.now()
                 )
 
-                # Send the update to the WebSocket
-                channel_layer = get_channel_layer()
-                async_to_sync(channel_layer.group_send)(
-                    'jar_counts',
-                    {
-                        'type': 'jar_count_update',
-                        'jar_count': jar_count_instance.count
-                    }
-                )
-
                 return JsonResponse({'status': 'success'})
             else:
                 return JsonResponse({'status': 'fail', 'reason': 'Invalid data'}, status=400)
@@ -300,3 +278,4 @@ def update_jar_count(request):
         return JsonResponse({'status': 'info', 'message': 'Use POST to update jar count'}, status=200)
     else:
         return JsonResponse({'status': 'fail', 'reason': 'Invalid request method'}, status=405)
+
