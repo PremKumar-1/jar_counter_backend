@@ -141,7 +141,7 @@ from django.utils.timezone import make_aware
 import pytz
 
 class DatePagination(pagination.PageNumberPagination):
-    page_size = 100000  # Setting the max number of items per page to 100,000
+    page_size = 100000  # Max items per page
     page_size_query_param = 'page_size'
     max_page_size = 100000
 
