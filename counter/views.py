@@ -130,37 +130,29 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.utils import timezone
 from django.db.models import Sum
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from .models import JarCount, Inventory
 from .serializers import JarCountSerializer, InventorySerializer
 from django.utils.timezone import make_aware
 import pytz
 
 
-class DatePagination(pagination.PageNumberPagination):
-    def get_paginated_response(self, data):
-        return Response({
-            'links': {
-               'next': self.get_next_link(),
-               'previous': self.get_previous_link()
-            },
-            'count': self.page.paginator.count,
-            'page': self.request.query_params.get('page', self.page.number),
-            'results': data
-        })
+class CustomDatePagination(pagination.PageNumberPagination):
+    page_size = 1
 
-    def paginate_queryset(self, queryset, request, view=None):
-        self.request = request
-        date = request.query_params.get('date')
-        if date:
-            date = parse_date(date)
+    def get_page_number(self, request, paginator):
+        date_str = request.query_params.get('date', None)
+        if date_str:
+            date = parse_date(date_str)
             if date:
-                queryset = queryset.filter(timestamp__date=date)
-        return super().paginate_queryset(queryset, request, view)
+                first_record_date = paginator.object_list.order_by('timestamp').first().timestamp.date()
+                page_number = (date - first_record_date).days + 1
+                return page_number
+        return super().get_page_number(request, paginator)
 
 
 class InventoryViewSet(viewsets.ModelViewSet):
@@ -191,24 +183,30 @@ class InventoryViewSet(viewsets.ModelViewSet):
 class JarCountViewSet(viewsets.ModelViewSet):
     queryset = JarCount.objects.all()
     serializer_class = JarCountSerializer
-    pagination_class = DatePagination
+    pagination_class = CustomDatePagination
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        date = self.request.query_params.get('date')
-        if date:
-            date = parse_date(date)
+        date_str = self.request.query_params.get('date')
+        if date_str:
+            date = parse_date(date_str)
             if date:
-                queryset = queryset.filter(timestamp__date=date)
+                central = pytz.timezone('America/Chicago')
+                start_datetime = central.localize(datetime.combine(date, datetime.min.time())) + timedelta(hours=8)
+                end_datetime = start_datetime + timedelta(days=1) - timedelta(seconds=1)
+                queryset = queryset.filter(timestamp__range=(start_datetime, end_datetime))
         return queryset
 
     @action(detail=False, methods=['get'])
     def aggregate(self, request):
-        date = request.query_params.get('date')
-        if date:
-            date = parse_date(date)
+        date_str = request.query_params.get('date')
+        if date_str:
+            date = parse_date(date_str)
             if date:
-                queryset = JarCount.objects.filter(timestamp__date=date)
+                central = pytz.timezone('America/Chicago')
+                start_datetime = central.localize(datetime.combine(date, datetime.min.time())) + timedelta(hours=8)
+                end_datetime = start_datetime + timedelta(days=1) - timedelta(seconds=1)
+                queryset = JarCount.objects.filter(timestamp__range=(start_datetime, end_datetime))
                 aggregation = queryset.values('shift').annotate(total=Sum('count')).order_by('shift')
                 result = {
                     'shift1': next((item['total'] for item in aggregation if item['shift'] == 'day'), 0),
@@ -250,6 +248,7 @@ class JarCountViewSet(viewsets.ModelViewSet):
             return Response({'status': 'success', 'message': 'Inventory updated and jars counted'})
         except Exception as e:
             return Response({'status': 'error', 'message': str(e)}, status=400)
+
 
 @csrf_exempt
 def update_jar_count(request):
