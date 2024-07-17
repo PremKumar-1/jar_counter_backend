@@ -130,9 +130,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.utils.dateparse import parse_date
 from django.utils import timezone
-from django.db.models import Sum
+from django.utils.dateparse import parse_date
+from django.db.models import Sum, Q
 import json
 from datetime import datetime, timedelta
 from .models import JarCount, Inventory
@@ -140,20 +140,38 @@ from .serializers import JarCountSerializer, InventorySerializer
 from django.utils.timezone import make_aware
 import pytz
 
+class DatePagination(pagination.PageNumberPagination):
+    def paginate_queryset(self, queryset, request, view=None):
+        date_str = request.query_params.get('date')
+        if not date_str:
+            return super().paginate_queryset(queryset, request, view)
 
-class CustomDatePagination(pagination.PageNumberPagination):
-    page_size = 1
+        date = parse_date(date_str)
+        if not date:
+            return super().paginate_queryset(queryset, request, view)
 
-    def get_page_number(self, request, paginator):
-        date_str = request.query_params.get('date', None)
-        if date_str:
-            date = parse_date(date_str)
-            if date:
-                first_record_date = paginator.object_list.order_by('timestamp').first().timestamp.date()
-                page_number = (date - first_record_date).days + 1
-                return page_number
-        return super().get_page_number(request, paginator)
+        start_date = datetime.combine(date, datetime.min.time(), tzinfo=timezone.get_current_timezone())
+        end_date = start_date + timedelta(days=1)
 
+        queryset = queryset.filter(timestamp__gte=start_date, timestamp__lt=end_date)
+        return super().paginate_queryset(queryset, request, view)
+
+    def get_paginated_response(self, data):
+        date_str = self.request.query_params.get('date')
+        if not date_str:
+            return super().get_paginated_response(data)
+
+        date = parse_date(date_str)
+        if not date:
+            return super().get_paginated_response(data)
+
+        return Response({
+            'date': date_str,
+            'count': self.page.paginator.count,
+            'next': self.get_next_link(),
+            'previous': self.get_previous_link(),
+            'results': data,
+        })
 
 class InventoryViewSet(viewsets.ModelViewSet):
     queryset = Inventory.objects.all()
@@ -179,34 +197,31 @@ class InventoryViewSet(viewsets.ModelViewSet):
                 return Response({'status': 'error', 'message': str(e)}, status=400)
         return Response(response_data, status=201)
 
-
 class JarCountViewSet(viewsets.ModelViewSet):
     queryset = JarCount.objects.all()
     serializer_class = JarCountSerializer
-    pagination_class = CustomDatePagination
+    pagination_class = DatePagination
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        date_str = self.request.query_params.get('date')
-        if date_str:
-            date = parse_date(date_str)
+        date = self.request.query_params.get('date')
+        if date:
+            date = parse_date(date)
             if date:
-                central = pytz.timezone('America/Chicago')
-                start_datetime = central.localize(datetime.combine(date, datetime.min.time())) + timedelta(hours=8)
-                end_datetime = start_datetime + timedelta(days=1) - timedelta(seconds=1)
-                queryset = queryset.filter(timestamp__range=(start_datetime, end_datetime))
+                start_date = datetime.combine(date, datetime.min.time(), tzinfo=timezone.get_current_timezone())
+                end_date = start_date + timedelta(days=1)
+                queryset = queryset.filter(timestamp__gte=start_date, timestamp__lt=end_date)
         return queryset
 
     @action(detail=False, methods=['get'])
     def aggregate(self, request):
-        date_str = request.query_params.get('date')
-        if date_str:
-            date = parse_date(date_str)
+        date = request.query_params.get('date')
+        if date:
+            date = parse_date(date)
             if date:
-                central = pytz.timezone('America/Chicago')
-                start_datetime = central.localize(datetime.combine(date, datetime.min.time())) + timedelta(hours=8)
-                end_datetime = start_datetime + timedelta(days=1) - timedelta(seconds=1)
-                queryset = JarCount.objects.filter(timestamp__range=(start_datetime, end_datetime))
+                start_date = datetime.combine(date, datetime.min.time(), tzinfo=timezone.get_current_timezone())
+                end_date = start_date + timedelta(days=1)
+                queryset = JarCount.objects.filter(timestamp__gte=start_date, timestamp__lt=end_date)
                 aggregation = queryset.values('shift').annotate(total=Sum('count')).order_by('shift')
                 result = {
                     'shift1': next((item['total'] for item in aggregation if item['shift'] == 'day'), 0),
@@ -248,7 +263,6 @@ class JarCountViewSet(viewsets.ModelViewSet):
             return Response({'status': 'success', 'message': 'Inventory updated and jars counted'})
         except Exception as e:
             return Response({'status': 'error', 'message': str(e)}, status=400)
-
 
 @csrf_exempt
 def update_jar_count(request):
