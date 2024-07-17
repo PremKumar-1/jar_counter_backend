@@ -9,16 +9,21 @@ https://docs.djangoproject.com/en/4.2/howto/deployment/asgi/
 
 # jar_counter/asgi.py
 
-# asgi.py
-
 import os
 from django.core.asgi import get_asgi_application
-from jar_counter.routing import application
+from channels.routing import ProtocolTypeRouter, URLRouter
+from channels.auth import AuthMiddlewareStack
+from jar_counter import routing
+import counter.routing
+
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'jar_counter.settings')
 
-django_asgi_app = get_asgi_application()
-
-application = application
-
-
+application = ProtocolTypeRouter({
+    "http": get_asgi_application(),
+    "websocket": AuthMiddlewareStack(
+        URLRouter(
+            counter.routing.websocket_urlpatterns
+        )
+    ),
+})

@@ -141,6 +141,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3001",
     "https://t3n-bnutty.netlify.app",
     "https://t3nbnutty.netlify.app",
+    "http://3.21.185.97:8000",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://3.21.185.97:8000",
 ]
 
 CORS_ALLOW_METHODS = [
@@ -156,7 +162,7 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
+            "hosts": [("redis://3.21.185.97:6379")],
         },
     },
 }
