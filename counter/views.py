@@ -140,6 +140,29 @@ from .serializers import JarCountSerializer, InventorySerializer
 from django.utils.timezone import make_aware
 import pytz
 
+
+class DatePagination(pagination.PageNumberPagination):
+    def get_paginated_response(self, data):
+        return Response({
+            'links': {
+               'next': self.get_next_link(),
+               'previous': self.get_previous_link()
+            },
+            'count': self.page.paginator.count,
+            'page': self.request.query_params.get('page', self.page.number),
+            'results': data
+        })
+
+    def paginate_queryset(self, queryset, request, view=None):
+        self.request = request
+        date = request.query_params.get('date')
+        if date:
+            date = parse_date(date)
+            if date:
+                queryset = queryset.filter(timestamp__date=date)
+        return super().paginate_queryset(queryset, request, view)
+
+
 class InventoryViewSet(viewsets.ModelViewSet):
     queryset = Inventory.objects.all()
     serializer_class = InventorySerializer
@@ -164,10 +187,11 @@ class InventoryViewSet(viewsets.ModelViewSet):
                 return Response({'status': 'error', 'message': str(e)}, status=400)
         return Response(response_data, status=201)
 
+
 class JarCountViewSet(viewsets.ModelViewSet):
     queryset = JarCount.objects.all()
     serializer_class = JarCountSerializer
-    pagination_class = pagination.PageNumberPagination
+    pagination_class = DatePagination
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -278,4 +302,3 @@ def update_jar_count(request):
         return JsonResponse({'status': 'info', 'message': 'Use POST to update jar count'}, status=200)
     else:
         return JsonResponse({'status': 'fail', 'reason': 'Invalid request method'}, status=405)
-
