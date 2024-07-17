@@ -141,6 +141,10 @@ from django.utils.timezone import make_aware
 import pytz
 
 class DatePagination(pagination.PageNumberPagination):
+    page_size = 100000  # Setting the max number of items per page to 100,000
+    page_size_query_param = 'page_size'
+    max_page_size = 100000
+
     def paginate_queryset(self, queryset, request, view=None):
         date_str = request.query_params.get('date')
         if not date_str:
@@ -154,18 +158,7 @@ class DatePagination(pagination.PageNumberPagination):
         end_time = start_time + timedelta(days=1) - timedelta(seconds=1)
 
         queryset = queryset.filter(timestamp__gte=start_time, timestamp__lt=end_time)
-        self.page = self.paginate_page_number(queryset, request, view=view)
-        return list(self.page)
-
-    def paginate_page_number(self, queryset, request, view=None):
-        paginator = self.django_paginator_class(queryset, self.page_size)
-        page_number = request.query_params.get(self.page_query_param, 1)
-        try:
-            page_number = int(page_number)
-        except ValueError:
-            page_number = 1
-        page = paginator.page(page_number)
-        return page
+        return super().paginate_queryset(queryset, request, view)
 
     def get_paginated_response(self, data):
         date_str = self.request.query_params.get('date')
