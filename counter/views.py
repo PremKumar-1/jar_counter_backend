@@ -132,39 +132,13 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from django.db.models import Sum, Q
+from django.db.models import Sum
 import json
-from datetime import datetime, time, timedelta
+from datetime import datetime
 from .models import JarCount, Inventory
 from .serializers import JarCountSerializer, InventorySerializer
 from django.utils.timezone import make_aware
 import pytz
-
-class DatePagination(pagination.PageNumberPagination):
-    page_size = 100000  # Setting the max number of items per page to 100,000
-    page_size_query_param = 'page_size'
-    max_page_size = 100000
-
-    def paginate_queryset(self, queryset, request, view=None):
-        date_str = request.query_params.get('date')
-        if date_str:
-            date = parse_date(date_str)
-            if date:
-                start_time = datetime.combine(date, time(8, 0), tzinfo=timezone.get_current_timezone())
-                end_time = start_time + timedelta(days=1) - timedelta(seconds=1)
-                queryset = queryset.filter(timestamp__gte=start_time, timestamp__lt=end_time)
-        
-        return super().paginate_queryset(queryset, request, view)
-
-    def get_paginated_response(self, data):
-        date_str = self.request.query_params.get('date')
-        return Response({
-            'date': date_str,
-            'count': self.page.paginator.count,
-            'next': self.get_next_link(),
-            'previous': self.get_previous_link(),
-            'results': data,
-        })
 
 class InventoryViewSet(viewsets.ModelViewSet):
     queryset = Inventory.objects.all()
@@ -193,7 +167,7 @@ class InventoryViewSet(viewsets.ModelViewSet):
 class JarCountViewSet(viewsets.ModelViewSet):
     queryset = JarCount.objects.all()
     serializer_class = JarCountSerializer
-    pagination_class = DatePagination
+    pagination_class = pagination.PageNumberPagination
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -201,9 +175,7 @@ class JarCountViewSet(viewsets.ModelViewSet):
         if date:
             date = parse_date(date)
             if date:
-                start_time = datetime.combine(date, time(8, 0), tzinfo=timezone.get_current_timezone())
-                end_time = start_time + timedelta(days=1) - timedelta(seconds=1)
-                queryset = queryset.filter(timestamp__gte=start_time, timestamp__lt=end_time)
+                queryset = queryset.filter(timestamp__date=date)
         return queryset
 
     @action(detail=False, methods=['get'])
@@ -212,9 +184,7 @@ class JarCountViewSet(viewsets.ModelViewSet):
         if date:
             date = parse_date(date)
             if date:
-                start_time = datetime.combine(date, time(8, 0), tzinfo=timezone.get_current_timezone())
-                end_time = start_time + timedelta(days=1) - timedelta(seconds=1)
-                queryset = JarCount.objects.filter(timestamp__gte=start_time, timestamp__lt=end_time)
+                queryset = JarCount.objects.filter(timestamp__date=date)
                 aggregation = queryset.values('shift').annotate(total=Sum('count')).order_by('shift')
                 result = {
                     'shift1': next((item['total'] for item in aggregation if item['shift'] == 'day'), 0),
@@ -308,3 +278,4 @@ def update_jar_count(request):
         return JsonResponse({'status': 'info', 'message': 'Use POST to update jar count'}, status=200)
     else:
         return JsonResponse({'status': 'fail', 'reason': 'Invalid request method'}, status=405)
+
