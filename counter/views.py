@@ -331,6 +331,7 @@ class InventoryViewSet(viewsets.ModelViewSet):
 class JarCountViewSet(viewsets.ModelViewSet):
     queryset = JarCount.objects.all()
     serializer_class = JarCountSerializer
+
     pagination_class = RelativeUrlPagination
 
     def get_queryset(self):
@@ -432,6 +433,7 @@ class JarCountViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error in update_inventory: {str(e)}")
             return Response({'status': 'error', 'message': str(e)}, status=400)
+
 
         
 @csrf_exempt
