@@ -292,6 +292,7 @@ from django.db.models import Sum, Q
 from datetime import datetime, timedelta
 from .models import JarCount, Inventory
 from .serializers import JarCountSerializer, InventorySerializer
+from django.core.cache import cache
 import logging
 
 logger = logging.getLogger(__name__)
@@ -322,26 +323,29 @@ class InventoryViewSet(viewsets.ModelViewSet):
         return Response(response_data, status=201)
 
 class JarCountViewSet(viewsets.ModelViewSet):
-    queryset = JarCount.objects.all()
+    queryset = JarCount.objects.all().select_related('inventory')
     serializer_class = JarCountSerializer
     pagination_class = pagination.PageNumberPagination
 
     def get_queryset(self):
         try:
-            queryset = super().get_queryset()
-            date = self.request.query_params.get('date')
-            if date:
-                date = parse_date(date)
+            queryset = cache.get('jarcount_queryset')
+            if not queryset:
+                queryset = super().get_queryset().select_related('inventory')
+                date = self.request.query_params.get('date')
                 if date:
-                    start_of_day_shift = datetime.combine(date, datetime.min.time()) + timedelta(hours=8)
-                    end_of_day_shift = start_of_day_shift + timedelta(hours=12)
-                    start_of_night_shift = end_of_day_shift
-                    end_of_night_shift = start_of_day_shift + timedelta(hours=24)
+                    date = parse_date(date)
+                    if date:
+                        start_of_day_shift = datetime.combine(date, datetime.min.time()) + timedelta(hours=8)
+                        end_of_day_shift = start_of_day_shift + timedelta(hours=12)
+                        start_of_night_shift = end_of_day_shift
+                        end_of_night_shift = start_of_day_shift + timedelta(hours=24)
 
-                    queryset = queryset.filter(
-                        (Q(timestamp__gte=start_of_day_shift) & Q(timestamp__lt=end_of_day_shift) & Q(shift='day')) |
-                        (Q(timestamp__gte=start_of_night_shift) & Q(timestamp__lt=end_of_night_shift) & Q(shift='night'))
-                    )
+                        queryset = queryset.filter(
+                            (Q(timestamp__gte=start_of_day_shift) & Q(timestamp__lt=end_of_day_shift) & Q(shift='day')) |
+                            (Q(timestamp__gte=start_of_night_shift) & Q(timestamp__lt=end_of_night_shift) & Q(shift='night'))
+                        )
+                cache.set('jarcount_queryset', queryset, 60*15)  # Cache for 15 minutes
             return queryset
         except Exception as e:
             logger.error(f"Error in get_queryset: {str(e)}")
