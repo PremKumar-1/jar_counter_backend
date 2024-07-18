@@ -326,7 +326,7 @@ class InventoryViewSet(viewsets.ModelViewSet):
 class JarCountViewSet(viewsets.ModelViewSet):
     queryset = JarCount.objects.all()
     serializer_class = JarCountSerializer
-    pagination_class = RelativeUrlPagination  # Use custom pagination class
+    pagination_class = RelativeUrlPagination
 
     def get_queryset(self):
         try:
@@ -348,6 +348,7 @@ class JarCountViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error in get_queryset: {str(e)}")
             raise e
+
 
     @action(detail=False, methods=['get'])
     def aggregate(self, request):
