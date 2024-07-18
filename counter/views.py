@@ -293,6 +293,8 @@ from datetime import datetime, timedelta
 from .models import JarCount, Inventory
 from .serializers import JarCountSerializer, InventorySerializer
 import logging
+from .pagination import RelativeUrlPagination
+
 
 logger = logging.getLogger(__name__)
 
@@ -324,7 +326,7 @@ class InventoryViewSet(viewsets.ModelViewSet):
 class JarCountViewSet(viewsets.ModelViewSet):
     queryset = JarCount.objects.all()
     serializer_class = JarCountSerializer
-    pagination_class = pagination.PageNumberPagination
+    pagination_class = RelativeUrlPagination  # Use custom pagination class
 
     def get_queryset(self):
         try:
@@ -415,7 +417,7 @@ class JarCountViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error in update_inventory: {str(e)}")
             return Response({'status': 'error', 'message': str(e)}, status=400)
-
+        
 @csrf_exempt
 def update_jar_count(request):
     if request.method == 'POST':
