@@ -39,7 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'counter',
     'corsheaders',
-    'channels',
+    #'channels',
     'rest_framework',
 ]
 
@@ -158,16 +158,14 @@ CORS_ALLOW_METHODS = [
     "PUT",
 ]
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [("redis://3.21.185.97:6379")],
-        },
-    },
-}
-
-ASGI_APPLICATION = 'jar_counter.asgi.application'
+#CHANNEL_LAYERS = {
+#    "default": {
+#       "BACKEND": "channels_redis.core.RedisChannelLayer",
+#       "CONFIG": {
+#           "hosts": [("redis://3.21.185.97:6379")],
+#       },
+#   },
+#}
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',

@@ -10,4 +10,3 @@ urlpatterns = [
     path('', include(router.urls)),
     path('update_jar_count/', update_jar_count, name='update_jar_count'),
 ]
-
