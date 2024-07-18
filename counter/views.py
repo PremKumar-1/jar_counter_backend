@@ -297,6 +297,8 @@ import logging
 from .pagination import RelativeUrlPagination
 import pytz
 from django.utils import timezone
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +327,7 @@ class InventoryViewSet(viewsets.ModelViewSet):
                 return Response({'status': 'error', 'message': str(e)}, status=400)
         return Response(response_data, status=201)
 
+
 class JarCountViewSet(viewsets.ModelViewSet):
     queryset = JarCount.objects.all()
     serializer_class = JarCountSerializer
@@ -350,7 +353,6 @@ class JarCountViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error in get_queryset: {str(e)}")
             raise e
-
 
     @action(detail=False, methods=['get'])
     def aggregate(self, request):
@@ -416,10 +418,21 @@ class JarCountViewSet(viewsets.ModelViewSet):
 
             jar_count = JarCount.objects.create(inventory=inventory, count=count, shift=shift)
 
+            # Trigger WebSocket message
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                "jarcounts",
+                {
+                    "type": "jar_count_update",
+                    "message": f"{jar_count.count} jars counted in {jar_count.shift} shift"
+                }
+            )
+
             return Response({'status': 'success', 'message': 'Inventory updated and jars counted'})
         except Exception as e:
             logger.error(f"Error in update_inventory: {str(e)}")
             return Response({'status': 'error', 'message': str(e)}, status=400)
+
         
 @csrf_exempt
 def update_jar_count(request):
@@ -461,6 +474,16 @@ def update_jar_count(request):
                     timestamp=timezone.now()
                 )
 
+                # Trigger WebSocket message
+                channel_layer = get_channel_layer()
+                async_to_sync(channel_layer.group_send)(
+                    "jarcounts",
+                    {
+                        "type": "jar_count_update",
+                        "message": f"{jar_count_instance.count} jars counted in {jar_count_instance.shift} shift"
+                    }
+                )
+
                 return JsonResponse({'status': 'success'})
             else:
                 return JsonResponse({'status': 'fail', 'reason': 'Invalid data'}, status=400)
@@ -473,3 +496,4 @@ def update_jar_count(request):
         return JsonResponse({'status': 'info', 'message': 'Use POST to update jar count'}, status=200)
     else:
         return JsonResponse({'status': 'fail', 'reason': 'Invalid request method'}, status=405)
+
