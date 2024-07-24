@@ -281,7 +281,7 @@ def update_jar_count(request):
         return JsonResponse({'status': 'info', 'message': 'Use POST to update jar count'}, status=200)
     else:
         return JsonResponse({'status': 'fail', 'reason': 'Invalid request method'}, status=405)
-"""
+
 from rest_framework import viewsets, pagination
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -465,6 +465,172 @@ def update_jar_count(request):
             else:
                 return JsonResponse({'status': 'fail', 'reason': 'Invalid data'}, status=400)
         except json.JSONDecodeError:
+            return JsonResponse({'status': 'fail', 'reason': 'Invalid JSON'}, status=400)
+        except Exception as e:
+            logger.error(f"Error in update_jar_count: {str(e)}")
+            return JsonResponse({'status': 'fail', 'reason': str(e)}, status=400)
+    elif request.method == 'GET':
+        return JsonResponse({'status': 'info', 'message': 'Use POST to update jar count'}, status=200)
+    else:
+        return JsonResponse({'status': 'fail', 'reason': 'Invalid request method'}, status=405)
+"""
+
+from rest_framework import viewsets, pagination, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import json
+from django.utils.dateparse import parse_date
+from django.db.models import Sum
+from datetime import datetime, timedelta, time
+from .models import JarCount, ShiftTiming, Inventory
+from .serializers import JarCountSerializer, ShiftTimingSerializer, InventorySerializer
+import logging
+import pytz
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
+
+class RelativeUrlPagination(pagination.PageNumberPagination):
+    page_size = 5000
+
+    def get_paginated_response(self, data):
+        return Response({
+            'links': {
+                'next': self.get_next_link(),
+                'previous': self.get_previous_link()
+            },
+            'count': self.page.paginator.count,
+            'results': data
+        })
+
+class InventoryViewSet(viewsets.ModelViewSet):
+    queryset = Inventory.objects.all()
+    serializer_class = InventorySerializer
+
+    def create(self, request, *args, **kwargs):
+        inventory_data = request.data if isinstance(request.data, list) else [request.data]
+        response_data = []
+        for item in inventory_data:
+            product_name = item.get('product_name')
+            quantity = item.get('quantity')
+            try:
+                inventory_item, created = Inventory.objects.update_or_create(
+                    product_name=product_name,
+                    defaults={'quantity': quantity}
+                )
+                response_data.append({
+                    'product_name': inventory_item.product_name,
+                    'quantity': inventory_item.quantity,
+                    'status': 'created' if created else 'updated'
+                })
+            except Exception as e:
+                logger.error(f"Error updating/creating inventory: {str(e)}")
+                return Response({'status': 'error', 'message': str(e)}, status=400)
+        return Response(response_data, status=201)
+
+class JarCountViewSet(viewsets.ModelViewSet):
+    queryset = JarCount.objects.all()
+    serializer_class = JarCountSerializer
+    pagination_class = RelativeUrlPagination
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        date = self.request.query_params.get('date')
+        if date:
+            date = parse_date(date)
+            if date:
+                shift_timings = ShiftTiming.objects.first()
+                if shift_timings:
+                    shift1_start = datetime.combine(date, shift_timings.shift1_start)
+                    shift2_start = datetime.combine(date, shift_timings.shift2_start)
+                else:
+                    shift1_start = datetime.combine(date, time(8, 0))
+                    shift2_start = datetime.combine(date, time(20, 0))
+
+                queryset = queryset.filter(timestamp__gte=shift1_start).order_by('timestamp')
+        return queryset
+
+    @action(detail=False, methods=['get'])
+    def aggregate(self, request):
+        date = request.query_params.get('date')
+        if date:
+            date = parse_date(date)
+            if date:
+                shift_timings = ShiftTiming.objects.first()
+                if shift_timings:
+                    shift1_start = datetime.combine(date, shift_timings.shift1_start)
+                    shift2_start = datetime.combine(date, shift_timings.shift2_start)
+                else:
+                    shift1_start = datetime.combine(date, time(8, 0))
+                    shift2_start = datetime.combine(date, time(20, 0))
+
+                day_shift_aggregation = JarCount.objects.filter(
+                    timestamp__gte=shift1_start,
+                    timestamp__lt=shift2_start
+                ).aggregate(total=Sum('count'))
+
+                night_shift_aggregation = JarCount.objects.filter(
+                    timestamp__gte=shift2_start,
+                    timestamp__lt=shift1_start + timedelta(days=1)
+                ).aggregate(total=Sum('count'))
+
+                result = {
+                    'shift1': day_shift_aggregation['total'] or 0,
+                    'shift2': night_shift_aggregation['total'] or 0,
+                    'total': (day_shift_aggregation['total'] or 0) + (night_shift_aggregation['total'] or 0)
+                }
+                return Response(result)
+        return Response({'error': 'Invalid or missing date'}, status=status.HTTP_400_BAD_REQUEST)
+
+class ShiftTimingViewSet(viewsets.ModelViewSet):
+    queryset = ShiftTiming.objects.all()
+    serializer_class = ShiftTimingSerializer
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+@csrf_exempt
+def update_jar_count(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            jar_count = data.get('jar_count')
+            timestamp = data.get('timestamp')
+
+            if not jar_count:
+                logger.error('Jar count is missing')
+                return JsonResponse({'status': 'fail', 'reason': 'Jar count is missing'}, status=400)
+
+            if not timestamp:
+                logger.error('Timestamp is missing')
+                return JsonResponse({'status': 'fail', 'reason': 'Timestamp is missing'}, status=400)
+
+            central = pytz.timezone('America/Chicago')
+            timestamp = datetime.fromisoformat(timestamp)
+            if timestamp.tzinfo is None:
+                timestamp = timezone.make_aware(timestamp, timezone=central)
+            else:
+                timestamp = timestamp.astimezone(central)
+
+            shift_timings = ShiftTiming.objects.first()
+            if not shift_timings:
+                logger.error('Shift timings are missing')
+                return JsonResponse({'status': 'fail', 'reason': 'Shift timings are missing'}, status=500)
+
+            JarCount.objects.create(
+                count=jar_count,
+                timestamp=timestamp
+            )
+
+            return JsonResponse({'status': 'success'})
+        except json.JSONDecodeError as e:
+            logger.error(f'Invalid JSON: {e}')
             return JsonResponse({'status': 'fail', 'reason': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.error(f"Error in update_jar_count: {str(e)}")
