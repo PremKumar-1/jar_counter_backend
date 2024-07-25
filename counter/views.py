@@ -603,34 +603,30 @@ def update_jar_count(request):
             jar_count = data.get('jar_count')
             timestamp = data.get('timestamp')
 
-            if not jar_count:
-                logger.error('Jar count is missing')
-                return JsonResponse({'status': 'fail', 'reason': 'Jar count is missing'}, status=400)
+            if timestamp:
+                central = pytz.timezone('America/Chicago')
+                timestamp = datetime.fromisoformat(timestamp)
+                if timestamp.tzinfo is None:
+                    timestamp = timezone.make_aware(timestamp, timezone=central)
+                else:
+                    timestamp = timestamp.astimezone(central)
 
-            if not timestamp:
-                logger.error('Timestamp is missing')
-                return JsonResponse({'status': 'fail', 'reason': 'Timestamp is missing'}, status=400)
+            if jar_count is not None:
+                shift_timings = ShiftTiming.objects.first()
+                if not shift_timings:
+                    shift_timings = ShiftTiming.objects.create()
 
-            central = pytz.timezone('America/Chicago')
-            timestamp = datetime.fromisoformat(timestamp)
-            if timestamp.tzinfo is None:
-                timestamp = timezone.make_aware(timestamp, timezone=central)
+                JarCount.objects.create(
+                    count=jar_count,
+                    timestamp=timestamp,
+                    shift1_start=shift_timings.shift1_start,
+                    shift2_start=shift_timings.shift2_start
+                )
+
+                return JsonResponse({'status': 'success'})
             else:
-                timestamp = timestamp.astimezone(central)
-
-            shift_timings = ShiftTiming.objects.first()
-            if not shift_timings:
-                logger.error('Shift timings are missing')
-                return JsonResponse({'status': 'fail', 'reason': 'Shift timings are missing'}, status=500)
-
-            JarCount.objects.create(
-                count=jar_count,
-                timestamp=timestamp
-            )
-
-            return JsonResponse({'status': 'success'})
-        except json.JSONDecodeError as e:
-            logger.error(f'Invalid JSON: {e}')
+                return JsonResponse({'status': 'fail', 'reason': 'Invalid data'}, status=400)
+        except json.JSONDecodeError:
             return JsonResponse({'status': 'fail', 'reason': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.error(f"Error in update_jar_count: {str(e)}")
