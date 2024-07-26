@@ -489,21 +489,9 @@ from .serializers import JarCountSerializer, ShiftTimingSerializer, InventorySer
 import logging
 import pytz
 from django.utils import timezone
+from .pagination import RelativeUrlPagination
 
 logger = logging.getLogger(__name__)
-
-class RelativeUrlPagination(pagination.PageNumberPagination):
-    page_size = 5000
-
-    def get_paginated_response(self, data):
-        return Response({
-            'links': {
-                'next': self.get_next_link(),
-                'previous': self.get_previous_link()
-            },
-            'count': self.page.paginator.count,
-            'results': data
-        })
 
 class InventoryViewSet(viewsets.ModelViewSet):
     queryset = Inventory.objects.all()

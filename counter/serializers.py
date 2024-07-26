@@ -21,12 +21,12 @@ from .models import JarCount, ShiftTiming, Inventory
 class JarCountSerializer(serializers.ModelSerializer):
     class Meta:
         model = JarCount
-        fields = ['id', 'count', 'timestamp']
+        fields = ['id', 'count', 'timestamp',  'shift1_start', 'shift2_start']
 
 class ShiftTimingSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShiftTiming
-        fields = ['id', 'shift1_start', 'shift2_start']
+        fields = ['shift1_start', 'shift2_start']
 
 class InventorySerializer(serializers.ModelSerializer):
     class Meta:
