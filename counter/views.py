@@ -490,6 +490,8 @@ import logging
 import pytz
 from django.utils import timezone
 from .pagination import RelativeUrlPagination
+from django.db import transaction
+from django.utils.timezone import make_aware
 
 logger = logging.getLogger(__name__)
 
@@ -583,7 +585,7 @@ class ShiftTimingViewSet(viewsets.ModelViewSet):
         self.perform_update(serializer)
         return Response(serializer.data)
 
-@csrf_exempt
+"""@csrf_exempt
 def update_jar_count(request):
     if request.method == 'POST':
         try:
@@ -631,6 +633,74 @@ def update_jar_count(request):
             else:
                 return JsonResponse({'status': 'fail', 'reason': 'Invalid data'}, status=400)
         except json.JSONDecodeError:
+            return JsonResponse({'status': 'fail', 'reason': 'Invalid JSON'}, status=400)
+        except Exception as e:
+            logger.error(f"Error in update_jar_count: {str(e)}")
+            return JsonResponse({'status': 'fail', 'reason': str(e)}, status=400)
+    elif request.method == 'GET':
+        return JsonResponse({'status': 'info', 'message': 'Use POST to update jar count'}, status=200)
+    else:
+        return JsonResponse({'status': 'fail', 'reason': 'Invalid request method'}, status=405)"""
+
+@csrf_exempt
+def update_jar_count(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            jar_count = data.get('jar_count')
+            timestamp = data.get('timestamp')
+
+            if not jar_count:
+                return JsonResponse({'status': 'fail', 'reason': 'Invalid jar count'}, status=400)
+
+            if timestamp:
+                central = pytz.timezone('America/Chicago')
+                timestamp = datetime.fromisoformat(timestamp)
+                if timestamp.tzinfo is None:
+                    timestamp = make_aware(timestamp, timezone=central)
+                else:
+                    timestamp = timestamp.astimezone(central)
+
+            depletion_rates = {
+                'Jars': 1,
+                'Lids': 1,
+                'Labels': 1,
+                'Sugar': 0.077,
+                'Salt': 0.011,
+                'Soy': 0.031,
+                'Peanuts': 1.173,
+                'Boxes': 1/12
+            }
+
+            try:
+                with transaction.atomic():
+                    for item, rate in depletion_rates.items():
+                        inventory_item = Inventory.objects.select_for_update().get(product_name=item)
+                        original_quantity = inventory_item.quantity
+                        inventory_item.quantity -= jar_count * rate
+                        inventory_item.save()
+                        logger.info(f"Updated {item}: {original_quantity} -> {inventory_item.quantity}")
+
+                    shift_timings = ShiftTiming.objects.first()
+                    if not shift_timings:
+                        shift_timings = ShiftTiming.objects.create()
+
+                    JarCount.objects.create(
+                        count=jar_count,
+                        timestamp=timestamp,
+                        shift1_start=shift_timings.shift1_start,
+                        shift2_start=shift_timings.shift2_start
+                    )
+
+                return JsonResponse({'status': 'success'})
+            except Inventory.DoesNotExist:
+                return JsonResponse({'status': 'fail', 'reason': 'Inventory item not found'}, status=400)
+            except Exception as e:
+                logger.error(f"Error in update_jar_count: {str(e)}")
+                return JsonResponse({'status': 'fail', 'reason': str(e)}, status=400)
+
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON")
             return JsonResponse({'status': 'fail', 'reason': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.error(f"Error in update_jar_count: {str(e)}")
