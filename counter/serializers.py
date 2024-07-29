@@ -19,9 +19,11 @@ from rest_framework import serializers
 from .models import JarCount, ShiftTiming, Inventory
 
 class JarCountSerializer(serializers.ModelSerializer):
+    inventory_name = serializers.CharField(source='inventory.product_name', read_only=True)
+
     class Meta:
         model = JarCount
-        fields = ['id', 'count', 'timestamp',  'shift1_start', 'shift2_start']
+        fields = ['id', 'count', 'timestamp',  'shift1_start', 'shift2_start', 'inventory', 'inventory_name']
 
 class ShiftTimingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -31,4 +33,4 @@ class ShiftTimingSerializer(serializers.ModelSerializer):
 class InventorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Inventory
-        fields = ['id', 'product_name', 'quantity']
+        fields = '__all__'
