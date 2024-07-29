@@ -599,7 +599,23 @@ def update_jar_count(request):
                 else:
                     timestamp = timestamp.astimezone(central)
 
+            depletion_rates = {
+                'Jars': 1,
+                'Lids': 1,
+                'Labels': 1,
+                'Sugar': 0.077,
+                'Salt': 0.011,
+                'Soy': 0.031,
+                'Peanuts': 1.173,
+                'Boxes': 1/12
+            }
+
             if jar_count is not None:
+                for item, rate in depletion_rates.items():
+                    inventory_item, created = Inventory.objects.get_or_create(product_name=item, defaults={'quantity': 0})
+                    inventory_item.quantity -= jar_count * rate
+                    inventory_item.save()
+
                 shift_timings = ShiftTiming.objects.first()
                 if not shift_timings:
                     shift_timings = ShiftTiming.objects.create()
