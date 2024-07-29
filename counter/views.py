@@ -482,7 +482,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 import json
 from django.utils.dateparse import parse_date
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from datetime import datetime, timedelta, time
 from .models import JarCount, ShiftTiming, Inventory
 from .serializers import JarCountSerializer, ShiftTimingSerializer, InventorySerializer
